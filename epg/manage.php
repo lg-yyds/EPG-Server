@@ -352,19 +352,10 @@ try {
                 $channelsData = [];
                 if (file_exists($csvFilePath)) {
                     $csvFile = fopen($csvFilePath, 'r');
-                    $header = fgetcsv($csvFile); // 跳过表头
+                    $header = fgetcsv($csvFile); // 读取表头
                     while (($row = fgetcsv($csvFile)) !== false) {
-                        $channelsData[] = [
-                            'groupTitle' => $row[0] ?? '',
-                            'channelName' => $row[1] ?? '',
-                            'streamUrl' => $row[2] ?? '',
-                            'iconUrl' => $row[3] ?? '',
-                            'tvgId' => $row[4] ?? '',
-                            'tvgName' => $row[5] ?? '',
-                            'disable' => $row[6] ?? '',
-                            'modified' => $row[7] ?? '',
-                            'tag' => $row[8] ?? '',
-                        ];
+                        if (count($row) !== count($header)) break; // 如果字段数量不一致，跳出循环
+                        $channelsData[] = array_combine($header, $row); // 动态关联表头与行数据
                     }
                     fclose($csvFile);
                 }
@@ -517,7 +508,7 @@ try {
             'upload_source_file' => isset($_FILES['liveSourceFile']),
             'save_content_to_file' => isset($_POST['save_content_to_file']),
             'save_source_info' => isset($_POST['save_source_info']),
-            'save_token' => isset($_POST['save_token']),
+            'update_config_field' => isset($_POST['update_config_field']),
         ];
 
         // 确定操作类型
@@ -678,22 +669,38 @@ try {
                 exit;
                 
             case 'save_source_info':
+                // 更新配置文件
+                $Config['live_tvg_logo_enable'] = (int)$_POST['live_tvg_logo_enable'];
+                $Config['live_tvg_id_enable'] = (int)$_POST['live_tvg_id_enable'];
+                $Config['live_tvg_name_enable'] = (int)$_POST['live_tvg_name_enable'];
+            
+                if (file_put_contents($configPath, json_encode($Config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) === false) {
+                    http_response_code(500);
+                    echo json_encode(['success' => false, 'message' => '保存配置文件失败']);
+                    exit;
+                }
+            
                 // 保存直播源信息
                 $content = json_decode($_POST['content'], true);
-                if (!$content) {
+                if (empty($content)) {
                     echo json_encode(['success' => false, 'message' => '无效的数据']);
                     exit;
                 }
+            
                 generateLiveFiles($content, 'tv'); // 重新生成 M3U 和 TXT 文件
                 echo json_encode(['success' => true]);
                 exit;
 
-            case 'save_token':
-                // 保存 token
-                $token = $_POST['content'] ?? '';
-                $Config['token'] = $token;
+            case 'update_config_field':
+                // 更新单个字段
+                foreach ($_POST as $key => $value) {
+                    // 排除 update_config_field 字段
+                    if ($key !== 'update_config_field') {
+                        $Config[$key] = is_numeric($value) ? intval($value) : $value;
+                    }
+                }
                 if (file_put_contents($configPath, json_encode($Config, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE)) !== false) {
-                    echo json_encode(['success' => true]);
+                    echo json_encode(['success' => $Config]);
                 } else {
                     http_response_code(500);
                     echo '保存失败';
